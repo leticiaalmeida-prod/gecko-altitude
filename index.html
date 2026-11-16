@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<style>html{-webkit-text-size-adjust:100%}body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>
+<title>Gecko Altitude Proposal</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a stack of 9:16 portrait cards, swiped vertically on a phone; one picture per card. */
+:root {
+  --bg: #121212;
+  --surface: #1A1A1A;
+  --raised: #222222;
+  --line: #383838;
+  --fg: #F2F2F0;
+  --soft: #B4B4B0;
+  --quiet: #8C8C88;
+  --accent: #0062FF;
+  --accent-text: #5C97FF;
+  --accent-wash: rgba(0, 98, 255, 0.14);
+  --font-display: 'Geist', 'Helvetica Neue', Arial, sans-serif;
+  --font-body: 'Geist', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Geist Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #F3F3F1;
+    --surface: #FFFFFF;
+    --raised: #EAEAE7;
+    --line: #CFCFCB;
+    --fg: #121212;
+    --soft: #4A4A46;
+    --quiet: #6A6A66;
+    --accent: #0062FF;
+    --accent-text: #0052D6;
+    --accent-wash: rgba(0, 98, 255, 0.09);
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #F3F3F1;
+  --surface: #FFFFFF;
+  --raised: #EAEAE7;
+  --line: #CFCFCB;
+  --fg: #121212;
+  --soft: #4A4A46;
+  --quiet: #6A6A66;
+  --accent: #0062FF;
+  --accent-text: #0052D6;
+  --accent-wash: rgba(0, 98, 255, 0.09);
+  color-scheme: light;
+}
+
+/* alternate cards take the opposite palette, so the stack moves between dark and light */
+.alt {
+  --bg: #F3F3F1;
+  --surface: #FFFFFF;
+  --raised: #E6E6E2;
+  --line: #CFCFCB;
+  --fg: #121212;
+  --soft: #4A4A46;
+  --quiet: #6A6A66;
+  --accent-text: #0052D6;
+  --accent-wash: rgba(0, 98, 255, 0.09);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .alt {
+    --bg: #121212;
+    --surface: #1A1A1A;
+    --raised: #222222;
+    --line: #383838;
+    --fg: #F2F2F0;
+    --soft: #B4B4B0;
+    --quiet: #8C8C88;
+    --accent-text: #5C97FF;
+    --accent-wash: rgba(0, 98, 255, 0.14);
+  }
+}
+:root[data-theme="light"] .alt {
+  --bg: #121212;
+  --surface: #1A1A1A;
+  --raised: #222222;
+  --line: #383838;
+  --fg: #F2F2F0;
+  --soft: #B4B4B0;
+  --quiet: #8C8C88;
+  --accent-text: #5C97FF;
+  --accent-wash: rgba(0, 98, 255, 0.14);
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  overflow: hidden;
+}
+h1, h2, h3, p, ul, ol, figure { margin: 0; padding: 0; }
+ul, ol { list-style: none; }
+
+.deck {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-snap-type: y proximity;
+  -webkit-overflow-scrolling: touch;
+}
+.card {
+  min-height: 100%;
+  box-sizing: border-box;
+  scroll-snap-align: start;
+  display: flex;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  color: var(--fg);
+  /* registration marks in the four corners */
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--quiet), var(--quiet)), linear-gradient(var(--quiet), var(--quiet)),
+    linear-gradient(var(--quiet), var(--quiet)), linear-gradient(var(--quiet), var(--quiet)),
+    linear-gradient(var(--quiet), var(--quiet)), linear-gradient(var(--quiet), var(--quiet)),
+    linear-gradient(var(--quiet), var(--quiet)), linear-gradient(var(--quiet), var(--quiet));
+  background-repeat: no-repeat;
+  background-size: 9px 1px, 1px 9px, 9px 1px, 1px 9px, 9px 1px, 1px 9px, 9px 1px, 1px 9px;
+  background-position:
+    left 7px top 11px, left 11px top 7px,
+    right 7px top 11px, right 11px top 7px,
+    left 7px bottom 11px, left 11px bottom 7px,
+    right 7px bottom 11px, right 11px bottom 7px;
+}
+/* how far through the proposal this card is */
+.card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 3px;
+  width: calc(var(--n, 1) / 12 * 100%);
+  background: var(--accent);
+  z-index: 2;
+}
+.dither {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  image-rendering: pixelated;
+  z-index: 0;
+}
+.card[data-dither="top"] .head { color: var(--fg); }
+.card.cover .main { justify-content: flex-end; padding-bottom: 6cqw; }
+.card[data-dither="bottom"] .main { justify-content: flex-start; padding-top: 22cqw; }
+.numeral {
+  font-family: var(--font-display);
+  font-size: max(150px, 52cqw);
+  font-weight: 600;
+  line-height: 0.76;
+  letter-spacing: -0.07em;
+  color: var(--accent);
+  margin-left: -0.04em;
+}
+/* corner brackets on the product windows */
+.brk { position: relative; }
+.brk::before, .brk::after {
+  content: "";
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--fg);
+  pointer-events: none;
+}
+.brk::before { top: -2px; left: -2px; border-right: none; border-bottom: none; }
+.brk::after { bottom: -2px; right: -2px; border-left: none; border-top: none; }
+.frame {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 480px;
+  max-width: calc(100dvh * 0.5625);
+  box-sizing: border-box;
+  container-type: inline-size;
+  padding-left: max(22px, env(safe-area-inset-left, 0px));
+  padding-right: max(22px, env(safe-area-inset-right, 0px));
+  padding-block: 26px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: max(11px, 3cqw);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: max(16px, 5cqw);
+}
+.title {
+  font-family: var(--font-display);
+  font-size: max(32px, 10.4cqw);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+.title.xl { font-size: max(40px, 13.6cqw); line-height: 0.95; letter-spacing: -0.05em; }
+.lede {
+  font-size: max(16px, 4.7cqw);
+  line-height: 1.32;
+  color: var(--soft);
+  text-wrap: pretty;
+}
+.note {
+  font-family: var(--font-mono);
+  font-size: max(11px, 3cqw);
+  line-height: 1.45;
+  letter-spacing: 0.02em;
+  color: var(--quiet);
+}
+.blue { color: var(--accent-text); }
+.hint {
+  font-family: var(--font-mono);
+  font-size: max(11px, 3cqw);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+
+/* card 2: six separate places */
+.places {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: max(8px, 2.4cqw);
+}
+.place {
+  min-width: 0;
+  border: 1px dashed var(--line);
+  padding: max(10px, 3cqw);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.place-name {
+  font-family: var(--font-mono);
+  font-size: max(11px, 3.1cqw);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+.place-holds {
+  font-size: max(15px, 4.4cqw);
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+/* card 3: the flow */
+.flow { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+.flow-pair { display: grid; grid-template-columns: 1fr 1fr; gap: max(8px, 2.4cqw); }
+.box {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: max(10px, 3.2cqw);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.box-tag {
+  font-family: var(--font-mono);
+  font-size: max(10px, 2.8cqw);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+.box-text { font-size: max(14px, 4cqw); line-height: 1.25; }
+.box.gecko { border-color: var(--accent); background: var(--accent-wash); }
+.box.gecko .box-tag { color: var(--accent-text); }
+.verbs {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  justify-content: space-between;
+  font-size: max(15px, 4.6cqw);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.box.out { border-color: var(--fg); }
+.box.out .box-text { font-size: max(17px, 5.2cqw); font-weight: 600; letter-spacing: -0.02em; }
+.arrow {
+  align-self: center;
+  width: 1px;
+  height: max(18px, 6cqw);
+  background: var(--quiet);
+  position: relative;
+}
+.arrow::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  bottom: 0;
+  border-left: 4.5px solid transparent;
+  border-right: 4.5px solid transparent;
+  border-top: 7px solid var(--quiet);
+}
+
+/* the "window" and the value -> source line */
+.win { border: 1px solid var(--line); background: var(--surface); }
+.win-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: max(8px, 2.4cqw) max(10px, 3.2cqw);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: max(10px, 2.7cqw);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+.win-body { padding: max(10px, 3.2cqw); display: flex; flex-direction: column; gap: max(12px, 3.6cqw); }
+.group { display: flex; flex-direction: column; gap: max(7px, 2cqw); }
+.group-tag {
+  font-family: var(--font-mono);
+  font-size: max(10px, 2.7cqw);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+.vs { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.vs-value { font-size: max(15px, 4.4cqw); font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; }
+.vs-source {
+  font-family: var(--font-mono);
+  font-size: max(10.5px, 2.8cqw);
+  line-height: 1.4;
+  color: var(--quiet);
+}
+.vs-source b { font-weight: 500; color: var(--accent-text); }
+.vs.changed .vs-value { color: var(--accent-text); }
+.bars { display: flex; flex-direction: column; gap: 6px; }
+.bar-row { display: flex; flex-direction: column; gap: 3px; }
+.bar-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: max(13px, 3.7cqw);
+  line-height: 1.2;
+}
+.bar-label span:last-child { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--soft); }
+.bar-track { height: max(9px, 2.6cqw); background: var(--raised); }
+.bar-fill { height: 100%; background: var(--quiet); }
+.bar-fill.real { background: var(--accent); }
+
+/* card 5: one fact over time */
+.timeline { display: flex; flex-direction: column; gap: 0; }
+.tick {
+  display: grid;
+  grid-template-columns: max(64px, 19cqw) 1fr;
+  gap: max(10px, 3cqw);
+  padding: max(10px, 3cqw) 0;
+  border-top: 1px solid var(--line);
+  align-items: start;
+}
+.tick-date {
+  font-family: var(--font-mono);
+  font-size: max(11px, 3cqw);
+  letter-spacing: 0.04em;
+  color: var(--quiet);
+  padding-top: 3px;
+}
+.flag {
+  display: inline-block;
+  margin-top: 6px;
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: max(10px, 2.7cqw);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+  border: 1px solid var(--accent);
+  padding: 3px 7px;
+}
+
+/* card 7: what teams could see */
+.views { display: flex; flex-direction: column; }
+.view {
+  display: grid;
+  grid-template-columns: max(44px, 13cqw) 1fr;
+  gap: max(10px, 3.2cqw);
+  align-items: center;
+  padding: max(9px, 2.7cqw) 0;
+  border-top: 1px solid var(--line);
+}
+.view svg { width: 100%; height: auto; display: block; color: var(--quiet); }
+.view svg .a { stroke: var(--accent); fill: none; }
+.view svg .af { fill: var(--accent); }
+.view-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.view-team {
+  font-family: var(--font-mono);
+  font-size: max(10px, 2.7cqw);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+.view-what { font-size: max(15px, 4.4cqw); font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; }
+
+/* card 8: steps */
+.steps { display: flex; flex-direction: column; }
+.step {
+  display: grid;
+  grid-template-columns: max(26px, 8cqw) 1fr;
+  gap: max(10px, 3.2cqw);
+  position: relative;
+  padding-bottom: max(14px, 4.4cqw);
+}
+.step:last-child { padding-bottom: 0; }
+.step-dot {
+  width: max(26px, 8cqw);
+  height: max(26px, 8cqw);
+  box-sizing: border-box;
+  border: 1px solid var(--quiet);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: max(11px, 3.2cqw);
+  color: var(--soft);
+  background: var(--bg);
+  position: relative;
+  z-index: 1;
+}
+.step.first .step-dot { border-color: var(--accent); color: var(--accent-text); background: var(--accent-wash); }
+.step::before {
+  content: "";
+  position: absolute;
+  left: calc(max(26px, 8cqw) / 2);
+  top: max(26px, 8cqw);
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+}
+.step:last-child::before { display: none; }
+.step-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; padding-top: 2px; }
+.step-what { font-size: max(16px, 4.8cqw); font-weight: 600; line-height: 1.18; letter-spacing: -0.015em; }
+.step-how { font-size: max(13.5px, 3.8cqw); line-height: 1.3; color: var(--soft); }
+
+/* card 9: who brings what */
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: max(8px, 2.4cqw); }
+.col { min-width: 0; border: 1px solid var(--line); background: var(--surface); padding: max(10px, 3.2cqw); display: flex; flex-direction: column; gap: max(9px, 2.8cqw); }
+.col.gecko { border-color: var(--accent); background: var(--accent-wash); }
+.col-name {
+  font-family: var(--font-mono);
+  font-size: max(11px, 3cqw);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+.col.gecko .col-name { color: var(--accent-text); }
+.col li { font-size: max(14px, 4.1cqw); line-height: 1.24; padding-top: max(8px, 2.4cqw); border-top: 1px solid var(--line); }
+.col.gecko li { border-top-color: var(--accent); }
+
+/* card 10: rules */
+.rules { display: flex; flex-direction: column; }
+.rule {
+  display: grid;
+  grid-template-columns: max(22px, 6.5cqw) 1fr;
+  gap: max(10px, 3cqw);
+  align-items: baseline;
+  padding: max(10px, 3.1cqw) 0;
+  border-top: 1px solid var(--line);
+  font-size: max(17px, 5.2cqw);
+  font-weight: 600;
+  line-height: 1.16;
+  letter-spacing: -0.02em;
+}
+.rule-mark { font-family: var(--font-mono); font-weight: 500; color: var(--accent-text); }
+
+/* card 11: questions */
+.qs { display: flex; flex-direction: column; }
+.q {
+  display: grid;
+  grid-template-columns: max(22px, 6.5cqw) 1fr;
+  gap: max(10px, 3cqw);
+  align-items: baseline;
+  padding: max(12px, 3.8cqw) 0;
+  border-top: 1px solid var(--line);
+  font-size: max(18px, 5.6cqw);
+  font-weight: 500;
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+}
+.q-n { font-family: var(--font-mono); color: var(--accent-text); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .deck { scroll-behavior: smooth; }
+}
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+<!-- 1 -->
+<section class="card cover" style="--n:1" data-dither="top" aria-label="Proposal">
+<div class="frame">
+<div class="head"><span>Proposal · 16 Nov 2026</span><span>01 / 12</span></div>
+<div class="main">
+<h1 class="title xl">A current picture of every Altitude customer.</h1>
+<p class="lede">A proposal from Gecko, to build with Altitude. It comes from two days reading your public pages and docs, and using your agent tools.</p>
+</div>
+<p class="hint">Swipe up ↑</p>
+</div>
+</section>
+
+<!-- 2 -->
+<section class="card" style="--n:2" aria-label="Where a customer's month lives today">
+<div class="frame">
+<div class="head"><span>Today · our reading</span><span>02 / 12</span></div>
+<div class="main">
+<p class="numeral" aria-hidden="true">6</p>
+<h2 class="title">places hold one customer’s month.</h2>
+<div class="places" role="img" aria-label="Six separate systems each hold part of one customer's activity">
+<div class="place"><span class="place-name">Bridge</span><span class="place-holds">Bank transfers</span></div>
+<div class="place"><span class="place-name">Due</span><span class="place-holds">Local payouts</span></div>
+<div class="place"><span class="place-name">Infinite</span><span class="place-holds">SWIFT</span></div>
+<div class="place"><span class="place-name">MoonPay</span><span class="place-holds">Conversions</span></div>
+<div class="place"><span class="place-name">Rain</span><span class="place-holds">Card spend</span></div>
+<div class="place"><span class="place-name">Solana</span><span class="place-holds">Balances, transfers</span></div>
+</div>
+<p class="lede">You built the customer’s view of this, for their books. The view across all customers is the open one.</p>
+<p class="note">Read from your partner pages. Correct us where we have it wrong.</p>
+</div>
+</div>
+</section>
+
+<!-- 3 -->
+<section class="card" style="--n:3" aria-label="What we would build together">
+<div class="frame">
+<div class="head"><span>The proposal</span><span>03 / 12</span></div>
+<div class="main">
+<h2 class="title">Join what you hold with what sits outside.</h2>
+<div class="flow" role="img" aria-label="Altitude's records and outside facts flow into Gecko, which produces one current picture per customer">
+<div class="flow-pair">
+<div class="box"><span class="box-tag">Inside Altitude</span><span class="box-text">Ledger, card, payouts, on-chain references</span></div>
+<div class="box"><span class="box-tag">Outside</span><span class="box-text">Registers, funding, counterparties, the chain</span></div>
+</div>
+<div class="arrow"></div>
+<div class="box gecko"><span class="box-tag">Gecko, on every run</span><div class="verbs"><span>Ask</span><span>Check</span><span>Switch</span><span>Record</span></div></div>
+<div class="arrow"></div>
+<div class="box out brk"><span class="box-tag">For Altitude</span><span class="box-text">One current picture per customer</span></div>
+</div>
+<p class="note">Your docs show each transaction already carries its on-chain reference. That is the key that joins the two sides.</p>
+</div>
+</div>
+</section>
+
+<!-- 4 -->
+<section class="card alt" style="--n:4" aria-label="What a customer picture could look like">
+<div class="frame">
+<div class="head"><span>What it looks like</span><span>04 / 12</span></div>
+<div class="main">
+<h2 class="title">Every value shows where it came from.</h2>
+<div class="win brk">
+<div class="win-bar"><span>harborstudio.example</span><span>Example data</span></div>
+<div class="win-body">
+<div class="group">
+<span class="group-tag">Who it is</span>
+<div class="vs"><span class="vs-value">Registered company, active</span><span class="vs-source"><b>└─</b> company register · checked 16 Nov</span></div>
+<div class="vs"><span class="vs-value">One funding round, two investors</span><span class="vs-source"><b>└─</b> public announcement · 03 Nov</span></div>
+</div>
+<div class="group">
+<span class="group-tag">What really moves, per month</span>
+<div class="bars">
+<div class="bar-row"><div class="bar-label"><span>Money in, as recorded</span><span>100</span></div><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div></div>
+<div class="bar-row"><div class="bar-label"><span>Earned from customers</span><span>61</span></div><div class="bar-track"><div class="bar-fill real" style="width:61%"></div></div></div>
+</div>
+<span class="vs-source"><b>└─</b> Altitude ledger + chain · own transfers and swaps removed</span>
+</div>
+<div class="group">
+<span class="group-tag">Who it pays</span>
+<div class="vs"><span class="vs-value">14 of 17 payees matched to a company</span><span class="vs-source"><b>└─</b> registers, bank directory · checked 16 Nov</span></div>
+</div>
+</div>
+</div>
+<p class="note">An illustration with invented figures, to show the shape. Not a real customer.</p>
+</div>
+</div>
+</section>
+
+<!-- 5 -->
+<section class="card alt" style="--n:5" aria-label="Maintain">
+<div class="frame">
+<div class="head"><span>Maintain</span><span>05 / 12</span></div>
+<div class="main">
+<h2 class="title">Facts you hold, <span class="blue">checked again.</span></h2>
+<div class="timeline" role="img" aria-label="The same fact re-checked each month; on the third check it has changed and is flagged">
+<div class="tick"><span class="tick-date">Sign-up</span><div class="vs"><span class="vs-value">Company status: active</span><span class="vs-source"><b>└─</b> company register</span></div></div>
+<div class="tick"><span class="tick-date">Month 1</span><div class="vs"><span class="vs-value">Company status: active</span><span class="vs-source"><b>└─</b> company register · no change</span></div></div>
+<div class="tick"><span class="tick-date">Month 2</span><div class="vs changed"><span class="vs-value">Ownership changed</span><span class="vs-source"><b>└─</b> company register · new filing</span><span class="flag">Flagged to you</span></div></div>
+</div>
+<p class="lede">Sign-up is a snapshot. Your terms already promise ongoing monitoring. This keeps the record current on its own.</p>
+</div>
+</div>
+</section>
+
+<!-- 6 -->
+<section class="card alt" style="--n:6" aria-label="Fetch">
+<div class="frame">
+<div class="head"><span>Fetch</span><span>06 / 12</span></div>
+<div class="main">
+<h2 class="title">Facts your ledger <span class="blue">can’t know.</span></h2>
+<div class="flow" role="img" aria-label="A payee name from the ledger is matched to a registered company with its status and bank identity">
+<div class="box"><span class="box-tag">In your ledger</span><span class="box-text">Paid to: ACME FREIGHT LTD</span></div>
+<div class="arrow"></div>
+<div class="win brk">
+<div class="win-bar"><span>acmefreight.example</span><span>Example data</span></div>
+<div class="win-body">
+<div class="vs"><span class="vs-value">A registered company, active</span><span class="vs-source"><b>└─</b> company register · checked 16 Nov</span></div>
+<div class="vs"><span class="vs-value">Bank account belongs to the same legal entity</span><span class="vs-source"><b>└─</b> bank identity directory</span></div>
+<div class="vs"><span class="vs-value">Not on a sanctions list</span><span class="vs-source"><b>└─</b> public sanctions lists · checked 16 Nov</span></div>
+</div>
+</div>
+</div>
+<p class="lede">Your October post asks how a business can trust the information moving between systems. This is the same question, asked about the other side of a payment.</p>
+</div>
+</div>
+</section>
+
+<!-- 7 -->
+<section class="card" style="--n:7" aria-label="What your teams could see">
+<div class="frame">
+<div class="head"><span>What it could open</span><span>07 / 12</span></div>
+<div class="main">
+<h2 class="title">One picture, read by every team.</h2>
+<div class="views">
+<div class="view">
+<svg viewBox="0 0 44 28" role="img" aria-label="Rising bars"><rect x="2" y="18" width="8" height="8" fill="currentColor"/><rect x="14" y="12" width="8" height="14" fill="currentColor"/><rect x="26" y="5" width="8" height="21" class="af"/></svg>
+<div class="view-text"><span class="view-team">Growth</span><span class="view-what">Who is ready for the next product</span></div>
+</div>
+<div class="view">
+<svg viewBox="0 0 44 28" role="img" aria-label="A falling line"><polyline points="2,6 12,8 22,7 32,16 42,23" class="a" stroke-width="2"/><circle cx="42" cy="23" r="2.5" class="af"/></svg>
+<div class="view-text"><span class="view-team">Retention</span><span class="view-what">Whose activity is thinning out</span></div>
+</div>
+<div class="view">
+<svg viewBox="0 0 44 28" role="img" aria-label="Three checks, one changed"><circle cx="8" cy="14" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="22" cy="14" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="36" cy="14" r="5" class="af"/></svg>
+<div class="view-text"><span class="view-team">Compliance</span><span class="view-what">Which customer facts changed since sign-up</span></div>
+</div>
+<div class="view">
+<svg viewBox="0 0 44 28" role="img" aria-label="A bracketed value"><polyline points="10,4 4,4 4,24 10,24" fill="none" stroke="currentColor" stroke-width="1.5"/><polyline points="34,4 40,4 40,24 34,24" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="13" y="11" width="18" height="6" class="af"/></svg>
+<div class="view-text"><span class="view-team">Your agent</span><span class="view-what">The business context for step three of your roadmap</span></div>
+</div>
+<div class="view">
+<svg viewBox="0 0 44 28" role="img" aria-label="A list"><rect x="2" y="4" width="40" height="4" class="af"/><rect x="2" y="12" width="30" height="4" fill="currentColor"/><rect x="2" y="20" width="35" height="4" fill="currentColor"/></svg>
+<div class="view-text"><span class="view-team">Sales</span><span class="view-what">A target list that stays current</span></div>
+</div>
+<div class="view">
+<svg viewBox="0 0 44 28" role="img" aria-label="A dashed outline"><rect x="4" y="5" width="36" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3"/></svg>
+<div class="view-text"><span class="view-team">Later, if you want it</span><span class="view-what">Credit beyond prepaid, decided by your card partner</span></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<!-- 8 -->
+<section class="card" style="--n:8" aria-label="How we would work together">
+<div class="frame">
+<div class="head"><span>Working together</span><span>08 / 12</span></div>
+<div class="main">
+<h2 class="title">Start with one account: <span class="blue">yours.</span></h2>
+<ol class="steps">
+<li class="step first"><span class="step-dot">1</span><div class="step-text"><span class="step-what">A test login</span><span class="step-how">You give us a test workspace. We add sign-in to our client.</span></div></li>
+<li class="step"><span class="step-dot">2</span><div class="step-text"><span class="step-what">The picture of Squads’ own account</span><span class="step-how">Squads runs on Altitude. No customer data leaves the company.</span></div></li>
+<li class="step"><span class="step-dot">3</span><div class="step-text"><span class="step-what">You judge it</span><span class="step-how">You know the right answer, so you can tell us where ours is wrong.</span></div></li>
+<li class="step"><span class="step-dot">4</span><div class="step-text"><span class="step-what">A few customers who agree</span><span class="step-how">Each signs in and shares their own records.</span></div></li>
+<li class="step"><span class="step-dot">5</span><div class="step-text"><span class="step-what">A standing view</span><span class="step-how">The picture keeps itself current across your customers.</span></div></li>
+</ol>
+</div>
+</div>
+</section>
+
+<!-- 9 -->
+<section class="card alt" style="--n:9" aria-label="Who brings what">
+<div class="frame">
+<div class="head"><span>Who brings what</span><span>09 / 12</span></div>
+<div class="main">
+<h2 class="title">Two halves of the same picture.</h2>
+<div class="split">
+<div class="col">
+<span class="col-name">Altitude</span>
+<ul>
+<li>The ledger and its on-chain references</li>
+<li>The customer’s sign-in as permission</li>
+<li>Knowing what the right answer looks like</li>
+</ul>
+</div>
+<div class="col gecko">
+<span class="col-name">Gecko</span>
+<ul>
+<li>Outside facts, each with source and date</li>
+<li>The joining and the cleaning</li>
+<li>Re-checking, so it stays true</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<!-- 10 -->
+<section class="card alt" style="--n:10" aria-label="How we would handle the data">
+<div class="frame">
+<div class="head"><span>How we handle it</span><span>10 / 12</span></div>
+<div class="main">
+<h2 class="title">Five rules we would hold to.</h2>
+<ul class="rules">
+<li class="rule"><span class="rule-mark">└─</span><span>Facts about companies, not about people</span></li>
+<li class="rule"><span class="rule-mark">└─</span><span>Every value with its source and date</span></li>
+<li class="rule"><span class="rule-mark">└─</span><span>Shared only with the customer’s agreement</span></li>
+<li class="rule"><span class="rule-mark">└─</span><span>Facts, never a score</span></li>
+<li class="rule"><span class="rule-mark">└─</span><span>Read-only on your side</span></li>
+</ul>
+</div>
+</div>
+</section>
+
+<!-- 11 -->
+<section class="card" style="--n:11" aria-label="Three questions">
+<div class="frame">
+<div class="head"><span>What we’d like to hear</span><span>11 / 12</span></div>
+<div class="main">
+<h2 class="title">Three questions for you.</h2>
+<ol class="qs">
+<li class="q"><span class="q-n">1</span><span>How long does it take to see one customer’s full month, and who builds it?</span></li>
+<li class="q"><span class="q-n">2</span><span>Which decision would you make first with it?</span></li>
+<li class="q"><span class="q-n">3</span><span>What stops you today?</span></li>
+</ol>
+</div>
+</div>
+</section>
+
+<!-- 12 -->
+<section class="card" style="--n:12" data-dither="bottom" aria-label="Close">
+<div class="frame">
+<div class="head"><span>Gecko</span><span>12 / 12</span></div>
+<div class="main">
+<h2 class="title xl">Let’s build the first picture <span class="blue">together.</span></h2>
+<p class="lede">Our notes from testing your agent tools are yours whenever they are useful.</p>
+<p class="note">geckovision.tech</p>
+</div>
+</div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var B = [0,32,8,40,2,34,10,42,48,16,56,24,50,18,58,26,12,44,4,36,14,46,6,38,60,28,52,20,62,30,54,22,
+           3,35,11,43,1,33,9,41,51,19,59,27,49,17,57,25,15,47,7,39,13,45,5,37,63,31,55,23,61,29,53,21];
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.card[data-dither]'));
+  function draw(card) {
+    var cv = card.querySelector('canvas.dither');
+    if (!cv) {
+      cv = document.createElement('canvas');
+      cv.className = 'dither';
+      cv.setAttribute('aria-hidden', 'true');
+      card.insertBefore(cv, card.firstChild);
+    }
+    var cell = 6;
+    var w = Math.max(1, Math.ceil(card.clientWidth / cell));
+    var h = Math.max(1, Math.ceil(card.clientHeight / cell));
+    cv.width = w; cv.height = h;
+    var ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = getComputedStyle(card).getPropertyValue('--accent').trim() || '#0062FF';
+    var fromTop = card.getAttribute('data-dither') === 'top';
+    for (var y = 0; y < h; y++) {
+      var t = fromTop ? y / h : 1 - y / h;
+      var fall = Math.max(0, 1 - t / (fromTop ? 0.46 : 0.34));
+      for (var x = 0; x < w; x++) {
+        var v = Math.pow(fall, 1.25) * (0.62 + 0.38 * (fromTop ? x / w : 1 - x / w));
+        if (v * 64 > B[(y % 8) * 8 + (x % 8)] + 0.5) ctx.fillRect(x, y, 1, 1);
+      }
+    }
+  }
+  function all() { cards.forEach(draw); }
+  all();
+  if (window.ResizeObserver) { var ro = new ResizeObserver(all); cards.forEach(function (c) { ro.observe(c); }); }
+  else { window.addEventListener('resize', all); }
+})();
+</script>
+</body>
+</html>
